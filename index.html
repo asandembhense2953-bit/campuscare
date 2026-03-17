@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>CampusCare — Campus Clinic Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+</head>
+<body>
+
+<!-- LOGIN PAGE -->
+<div id="loginPage">
+  <div class="login-bg"></div>
+  <div class="login-bg-grid"></div>
+  <div class="login-bg-blobs">
+    <div class="blob blob1"></div>
+    <div class="blob blob2"></div>
+    <div class="blob blob3"></div>
+  </div>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="login-logo-mark">
+          <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+        </div>
+        <div class="login-brand">Campus<span>Care</span></div>
+      </div>
+      <div id="connBanner" class="conn-banner"></div>
+      <div class="login-tabs">
+        <button class="login-tab active" onclick="switchLoginTab('signin')">Sign In</button>
+        <button class="login-tab" onclick="switchLoginTab('register')">Register (Student)</button>
+      </div>
+      <div id="signinForm">
+        <div class="login-title">Welcome back</div>
+        <div class="login-sub">Sign in to your CampusCare account</div>
+        <div class="login-error" id="loginErr">Invalid credentials. Please try again.</div>
+        <div>
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="loginEmail" placeholder="your@university.edu" autocomplete="email">
+        </div>
+        <div>
+          <label class="form-label">Password</label>
+          <input type="password" class="form-input" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="login-btn" onclick="doLogin()">Sign In to CampusCare</button>
+        <div class="login-hint">Your role is automatically assigned from your account</div>
+        <div class="login-hint" style="margin-top:8px">Forgot password? <span class="login-link" onclick="openForgotPassword()">Request a reset</span></div>
+      </div>
+      <div id="registerForm" style="display:none">
+        <div class="login-title">Create Student Account</div>
+        <div class="login-sub">Students create their own account here. Staff accounts are set up by the administrator.</div>
+        <div class="login-error" id="regErr">Please fill in all fields.</div>
+        <div class="field-grid" style="gap:10px">
+          <div><label class="form-label">First Name</label><input type="text" class="form-input" id="regFirst" placeholder="Ahmad"></div>
+          <div><label class="form-label">Last Name</label><input type="text" class="form-input" id="regLast" placeholder="Zulkifli"></div>
+        </div>
+        <label class="form-label">Student ID</label>
+        <input type="text" class="form-input" id="regStudentId" placeholder="STU2024-XXX">
+        <label class="form-label">University Email</label>
+        <input type="email" class="form-input" id="regEmail" placeholder="student@university.edu">
+        <div class="field-grid" style="gap:10px">
+          <div><label class="form-label">Department</label>
+            <select class="form-select" id="regDept">
+              <option value="Computer Science">Computer Science</option>
+              <option value="Engineering">Engineering</option>
+              <option value="Business">Business</option>
+              <option value="Medicine">Medicine</option>
+              <option value="Arts">Arts</option>
+              <option value="Science">Science</option>
+              <option value="Law">Law</option>
+            </select>
+          </div>
+          <div><label class="form-label">Password</label><input type="password" class="form-input" id="regPass" placeholder="Create password"></div>
+        </div>
+        <button class="login-btn" onclick="doRegister()">Create Student Account</button>
+        <div class="login-hint">By registering, your account will be active immediately</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="appShell">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-toggle" onclick="toggleSidebar()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="page-title" id="pageTitle">Dashboard</div>
+      <div class="topbar-search">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="search-input" id="globalSearch" placeholder="Search patient…" oninput="globalSearchFn(this.value)">
+      </div>
+      <div style="display:flex;align-items:center;gap:7px">
+        <div class="icon-btn" onclick="openNotifModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <div class="ndot" id="notifDot"></div>
+        </div>
+        <div class="icon-btn" id="topbarAva" onclick="navTo('profile')" style="border-radius:50%;width:32px;height:32px;overflow:hidden;border:none"></div>
+      </div>
+    </header>
+    <main class="content" id="contentArea"></main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalBox">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Modal</div>
+      <button class="close-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+<script src="app.js"></script>
+</body>
+</html>
