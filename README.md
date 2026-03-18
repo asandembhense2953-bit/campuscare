@@ -15,14 +15,6 @@
 | 7 | Siyamthanda Mthethwa | @siyamthanda | Booking System & Student Features |
 | 8 | Siphesihle Ntshele | @siphesihle | User Management, Reports & UI Engine |
 
-## How to Run
-
-1. Unzip the folder
-2. Open in VS Code → right-click `index.html` → **Open with Live Server**
-3. Or: `python -m http.server 8080` then open `http://localhost:8080/index.html`
-
-> Must be served over HTTP — does not work from file://
-
 ## Login
 
 | Email | Password | Role |
