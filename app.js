@@ -458,13 +458,15 @@ async function enterApp() {
   document.getElementById('appShell').style.display='flex';
   buildSidebar();
   buildTopbarAva();
-  navTo('dashboard');
-  toast(`Welcome, ${currentUser.name.split(' ')[0]}! 👋`,'success');
-  // Load all real data from Supabase
+  // Show loading while we fetch data
+  const area = document.getElementById('contentArea');
+  area.innerHTML = '<div style="padding:80px;text-align:center;color:var(--ink3);font-size:14px">Loading your dashboard…</div>';
+  // Load ALL data first, then render
   await loadAllData();
-  // Refresh current page to show real data
-  navTo(currentPage);
+  // Now render the dashboard with real data
+  await navTo('dashboard');
   buildSidebar();
+  toast(`Welcome, ${currentUser.name.split(' ')[0]}! 👋`,'success');
 }
 
 async function doLogout() {
@@ -578,7 +580,7 @@ async function navTo(page) {
   const area = document.getElementById('contentArea');
 
   // Pages that need fresh data from Supabase before rendering
-  const needsRefresh = ['appointments','my-appointments','dashboard','reports','users','consultations'];
+  const needsRefresh = ['appointments','my-appointments','reports','users','consultations'];
   if (needsRefresh.includes(page)) {
     area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--ink3);font-size:13px">Loading…</div>';
     await Promise.all([
@@ -2975,3 +2977,4 @@ document.addEventListener('keydown',e=>{
   if (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA') return;
   if (e.key==='d'&&currentUser) navTo('dashboard');
 });
+</script>
