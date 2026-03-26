@@ -584,12 +584,36 @@ async function navTo(page) {
   document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || 'Dashboard';
   const area = document.getElementById('contentArea');
 
-  // Pages that need fresh data from Supabase before rendering
-  const needsRefresh = ['appointments','my-appointments','dashboard','reports','users','consultations'];
+  const pageMap = {
+    dashboard:renderDashboard, appointments:renderAppointments, queue:renderQueue, 'my-queue':renderMyQueue,
+    reports:renderReports, users:renderUsers, profile:renderProfile,
+    booking:renderBooking, 'my-appointments':renderMyAppointments,
+    'queue-status':renderQueueStatus, consultations:renderConsultations,
+    vitals:renderVitals, audit:renderAuditLog
+  };
+
+  // For dashboard: render immediately with cached data, then refresh silently in background
+  if (page === 'dashboard') {
+    area.innerHTML = (pageMap.dashboard)();
+    if (page==='appointments') initApptFilters();
+    if (page==='queue') initQueueFilters();
+    // Background refresh — re-render once fresh data arrives
+    try {
+      await Promise.all([ refreshAppointments(), refreshEmergencies() ]);
+      if (currentPage === 'dashboard') area.innerHTML = renderDashboard();
+    } catch(e) {
+      console.error('dashboard background refresh error:', e);
+    }
+    return;
+  }
+
+  // For other data pages: show loading spinner, fetch, then render
+  const needsRefresh = ['appointments','my-appointments','reports','users','consultations'];
   if (needsRefresh.includes(page)) {
-    area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--ink3);font-size:13px">Loading…</div>';
-    // ✅ FIX 2: Wrap in try/catch so a Supabase timeout or error never leaves
-    // the page frozen on "Loading…" — the render call below always executes.
+    area.innerHTML = `<div style="padding:60px 40px;text-align:center">
+      <div style="display:inline-block;width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.7s linear infinite;margin-bottom:14px"></div>
+      <div style="color:var(--ink3);font-size:13px">Loading data…</div>
+    </div>`;
     try {
       await Promise.all([
         refreshAppointments(),
@@ -601,13 +625,6 @@ async function navTo(page) {
     }
   }
 
-  const pageMap = {
-    dashboard:renderDashboard, appointments:renderAppointments, queue:renderQueue, 'my-queue':renderMyQueue,
-    reports:renderReports, users:renderUsers, profile:renderProfile,
-    booking:renderBooking, 'my-appointments':renderMyAppointments,
-    'queue-status':renderQueueStatus, consultations:renderConsultations,
-    vitals:renderVitals, audit:renderAuditLog
-  };
   area.innerHTML = (pageMap[page]||renderDashboard)();
   if (page==='appointments') initApptFilters();
   if (page==='queue') initQueueFilters();
