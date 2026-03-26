@@ -246,6 +246,9 @@ async function loadAllData() {
       createdAt:   e.created_at,
     }));
 
+    // Auto-expire any past pending/approved appointments
+    await autoExpireAppointments();
+
   } catch(e) {
     console.error('loadAllData error:', e);
   }
@@ -322,11 +325,14 @@ async function doLogin() {
   btn.textContent='Sign In to CampusCare'; btn.disabled=false;
 }
 
-function openPasswordChangeModal() {
+async function openPasswordChangeModal() {
   // Show modal requiring user to change their admin-set password
   document.getElementById('loginPage').style.display='none';
   document.getElementById('appShell').style.display='flex';
-  buildSidebar(); buildTopbarAva(); navTo('dashboard');
+  buildSidebar(); buildTopbarAva();
+  // ✅ FIX 3: Load data before rendering, same as enterApp fix
+  await loadAllData();
+  navTo('dashboard');
   setTimeout(() => {
     openModal('🔑 Password Change Required',
       `<div style="text-align:center;padding:8px 0 12px">
@@ -362,6 +368,7 @@ async function doRegister() {
   const pass  = document.getElementById('regPass').value;
   const err   = document.getElementById('regErr');
   if (!first||!last||!sid||!email||!pass) { showErr(err,'Please fill in all fields.'); return; }
+  if (!/^\d{8}$/.test(sid)) { showErr(err,'Student ID must be exactly 8 digits (e.g. 22440270).'); return; }
   if (!email.includes('@')) { showErr(err,'Please enter a valid email address.'); return; }
   if (pass.length < 6) { showErr(err,'Password must be at least 6 characters.'); return; }
   err.style.display='none';
@@ -458,15 +465,13 @@ async function enterApp() {
   document.getElementById('appShell').style.display='flex';
   buildSidebar();
   buildTopbarAva();
-  // Show loading while we fetch data
-  const area = document.getElementById('contentArea');
-  area.innerHTML = '<div style="padding:80px;text-align:center;color:var(--ink3);font-size:14px">Loading your dashboard…</div>';
-  // Load ALL data first, then render
+  // ✅ FIX 1: Load all real data from Supabase BEFORE rendering any page
+  // Previously, navTo('dashboard') was called before loadAllData() completed,
+  // causing the dashboard and all pages to render with empty DB data.
   await loadAllData();
-  // Now render the dashboard with real data
-  await navTo('dashboard');
-  buildSidebar();
+  navTo('dashboard');
   toast(`Welcome, ${currentUser.name.split(' ')[0]}! 👋`,'success');
+  buildSidebar();
 }
 
 async function doLogout() {
@@ -580,14 +585,20 @@ async function navTo(page) {
   const area = document.getElementById('contentArea');
 
   // Pages that need fresh data from Supabase before rendering
-  const needsRefresh = ['appointments','my-appointments','reports','users','consultations'];
+  const needsRefresh = ['appointments','my-appointments','dashboard','reports','users','consultations'];
   if (needsRefresh.includes(page)) {
     area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--ink3);font-size:13px">Loading…</div>';
-    await Promise.all([
-      refreshAppointments(),
-      refreshEmergencies(),
-      page === 'users' ? loadUsersFromSupabase() : Promise.resolve(),
-    ]);
+    // ✅ FIX 2: Wrap in try/catch so a Supabase timeout or error never leaves
+    // the page frozen on "Loading…" — the render call below always executes.
+    try {
+      await Promise.all([
+        refreshAppointments(),
+        refreshEmergencies(),
+        page === 'users' ? loadUsersFromSupabase() : Promise.resolve(),
+      ]);
+    } catch(e) {
+      console.error('navTo refresh error:', e);
+    }
   }
 
   const pageMap = {
@@ -624,6 +635,8 @@ async function refreshAppointments() {
         source:    a.source||'online',
       }));
     }
+    // Auto-expire past pending/approved appointments after every fetch
+    await autoExpireAppointments();
   } catch(e) {
     console.error('refreshAppointments error:', e);
   }
@@ -636,7 +649,7 @@ function initials(name) { return name.split(' ').map(w=>w[0]).slice(0,2).join(''
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 const AVA_C = ['linear-gradient(135deg,#667eea,#764ba2)','linear-gradient(135deg,#f093fb,#f5576c)','linear-gradient(135deg,#4facfe,#00f2fe)','linear-gradient(135deg,#43e97b,#38f9d7)','linear-gradient(135deg,#fa709a,#fee140)','linear-gradient(135deg,#a18cd1,#fbc2eb)','linear-gradient(135deg,#ffecd2,#fcb69f)'];
 function getAvaColor(name) { let h=0; for(let i=0;i<name.length;i++) h=(h+name.charCodeAt(i))%AVA_C.length; return AVA_C[h]; }
-function statusBadge(s) { return {pending:'b-pending',approved:'b-approved',completed:'b-completed',rejected:'b-rejected',cancelled:'b-rejected'}[s]||'b-normal'; }
+function statusBadge(s) { return {pending:'b-pending',approved:'b-approved',completed:'b-completed',rejected:'b-rejected',cancelled:'b-rejected',expired:'b-expired'}[s]||'b-normal'; }
 function nowTime() { return new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}); }
 function addNotification(msg, type='info') {
   DB.notifications.unshift({id:'N-'+Date.now(),msg,time:'Just now',type,unread:true});
@@ -980,7 +993,7 @@ function renderDashboard() {
     <div class="realtime-bar">
       <div class="live-badge"><div class="live-dot"></div>Live</div>
       <span>Queue syncing in real-time · Last updated just now</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--ink3)">Sun, 1 Mar 2026 · ${nowTime()}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--ink3)">${new Date().toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"})} · ${nowTime()}</span>
     </div>
     <div class="hero">
       <div class="hero-l">
@@ -1021,13 +1034,13 @@ function renderDashboard() {
       <div class="card">
         <div class="card-h"><div><div class="card-title">Recent Appointments</div></div><button class="btn btn-ghost btn-sm" onclick="navTo('appointments')">View All</button></div>
         <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Patient</th><th>Date</th><th>Type</th><th>Status</th></tr></thead>
-        <tbody>${DB.appointments.slice(0,4).map(a=>`<tr>
+        <tbody>${DB.appointments.slice(0,4).map(a=>{const _today=new Date().toISOString().split('T')[0];const _past=a.date<_today&&a.status!=='completed'&&a.status!=='expired';return`<tr${a.status==='expired'?' style="opacity:0.65"':''}>
           <td><span class="appt-id">#${a.id}</span></td>
           <td><div class="pt-cell"><div class="pt-ava" style="background:${getAvaColor(a.patient)}">${initials(a.patient)}</div><div class="pt-name">${a.patient}</div></div></td>
-          <td>${a.date}</td>
+          <td style="${_past?'color:var(--red);font-weight:600':''}">${a.date}${_past?` <span style="font-size:9px;background:var(--red-bg);color:var(--red);padding:1px 4px;border-radius:4px">past</span>`:''}</td>
           <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
           <td><span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span></td>
-        </tr>`).join('')}</tbody></table></div>
+        </tr>`;}).join('')}</tbody></table></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="card">
@@ -1081,13 +1094,15 @@ function renderStudentDashboard() {
       <div class="card">
         <div class="card-h"><div class="card-title">My Appointments</div><button class="btn btn-ghost btn-sm" onclick="navTo('my-appointments')">All</button></div>
         <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Doctor</th><th>Type</th><th>Status</th><th></th></tr></thead>
-        <tbody>${myAppts.slice(0,4).map(a=>`<tr>
-          <td>${a.date} ${a.time}</td><td>${a.doctor}</td>
+        <tbody>${myAppts.slice(0,4).map(a=>{const _today=new Date().toISOString().split('T')[0];const _past=a.date<_today&&a.status!=='completed'&&a.status!=='expired';return`<tr${a.status==='expired'?' style="opacity:0.65"':''}>
+          <td style="${_past?'color:var(--red);font-weight:600':''}">${a.date} ${a.time}${_past?` <span style="font-size:9px;background:var(--red-bg);color:var(--red);padding:1px 4px;border-radius:4px">past</span>`:''}</td>
+          <td>${a.doctor}</td>
           <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
           <td><span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span></td>
-          <td>${a.status==='pending'?`<button class="btn btn-ghost btn-sm" onclick="studentEditAppt('${a.id}')">Edit</button>`:''}
-              ${a.status==='pending'?`<button class="btn btn-danger btn-sm" onclick="cancelAppt('${a.id}')">Cancel</button>`:''}</td>
-        </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--ink3)">No appointments yet</td></tr>'}</tbody></table></div>
+          <td>${a.status==='pending'&&!_past?`<button class="btn btn-ghost btn-sm" onclick="studentEditAppt('${a.id}')">Edit</button>`:''}
+              ${a.status==='pending'&&!_past?`<button class="btn btn-danger btn-sm" onclick="cancelAppt('${a.id}')">Cancel</button>`:''}
+              ${a.status==='expired'?`<button class="btn btn-primary btn-sm" onclick="navTo('booking')">↩ Rebook</button>`:''}</td>
+        </tr>`;}).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--ink3)">No appointments yet</td></tr>'}</tbody></table></div>
       </div>
       <div class="card">
         <div class="card-h"><div class="card-title">🗂 My Medical Record</div><button class="btn btn-ghost btn-sm" onclick="viewMedicalRecord(currentUser.userId)">View Full</button></div>
@@ -1107,7 +1122,8 @@ function renderStudentDashboard() {
 //  RECEPTIONIST DASHBOARD
 // ══════════════════════════════════════════════
 function renderReceptionistDashboard(total, pending, emergency, completed, waiting) {
-  const todayAppts = DB.appointments.filter(a=>a.date==='2026-03-01');
+  const _todayDate = new Date().toISOString().split('T')[0];
+  const todayAppts = DB.appointments.filter(a=>a.date===_todayDate);
   const inProgress = DB.queue.filter(q=>q.status==='in-progress').length;
   const pendingItems = DB.appointments.filter(a=>a.status==='pending');
   const queuePreview = DB.queue.filter(q=>q.status!=='done').slice(0,5).map(q=>`
@@ -1122,7 +1138,7 @@ function renderReceptionistDashboard(total, pending, emergency, completed, waiti
       </div>
     </div>`).join('') || '<div style="text-align:center;padding:16px;color:var(--ink3);font-size:12.5px">Queue is empty</div>';
   return `
-    <div class="realtime-bar"><div class="live-badge"><div class="live-dot"></div>Live</div><span>Front Desk View</span><span style="margin-left:auto;font-size:11px;color:var(--ink3)">Sun, 1 Mar 2026 · ${nowTime()}</span></div>
+    <div class="realtime-bar"><div class="live-badge"><div class="live-dot"></div>Live</div><span>Front Desk View</span><span style="margin-left:auto;font-size:11px;color:var(--ink3)">${new Date().toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"})} · ${nowTime()}</span></div>
     <div class="hero">
       <div class="hero-l"><div class="hero-greet">Good morning, Front Desk</div><div class="hero-title">Welcome, <em>${currentUser.name.split(' ')[0]}</em> 👋</div><div class="hero-desc">${waiting} patients waiting · ${pending} need attention</div></div>
       <div class="hero-stats">
@@ -1163,16 +1179,18 @@ function renderReceptionistDashboard(total, pending, emergency, completed, waiti
         <div class="card">
           <div class="card-h"><div><div class="card-title">Today's Appointments</div><div class="card-sub">${todayAppts.length} scheduled</div></div></div>
           <div class="tbl-wrap"><table><thead><tr><th>Patient</th><th>Time</th><th>Doctor</th><th>Status</th><th></th></tr></thead>
-          <tbody>${todayAppts.slice(0,5).map(a=>`<tr>
+          <tbody>${todayAppts.slice(0,5).map(a=>{
+            const _isPast = a.status!=='completed'&&a.status!=='expired';
+            return`<tr${a.status==='expired'?' style="opacity:0.65;background:var(--surface2)"':''}>
             <td><div class="pt-cell"><div class="pt-ava" style="background:${getAvaColor(a.patient)}">${initials(a.patient)}</div><div><div class="pt-name">${a.patient}</div><div class="pt-id">${a.studentId}</div></div></div></td>
             <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${a.time}</td>
             <td>${a.doctor}</td>
-            <td><span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span></td>
+            <td><span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span>${a.status==='expired'?`<div style="font-size:10px;color:var(--ink3)">Auto-removed</div>`:''}</td>
             <td style="display:flex;gap:3px">
               <button class="btn btn-ghost btn-sm" onclick="viewAppt('${a.id}')">View</button>
               ${a.status==='pending'?`<button class="btn btn-success btn-sm" onclick="approveAppt('${a.id}')">✓</button>`:''}
             </td>
-          </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--ink3)">No appointments today</td></tr>'}</tbody></table></div>
+          </tr>`;}).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--ink3)">No appointments today</td></tr>'}</tbody></table></div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px">
@@ -1212,7 +1230,7 @@ function renderDoctorDashboard() {
 
   const emgHtml = DB.emergencies.length>0?`<div style="margin-bottom:16px"><div class="card" style="border:2px solid var(--red)"><div class="card-h" style="background:var(--red-bg);border-radius:10px 10px 0 0"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">🚨</span><div class="card-title" style="color:#991b1b">Active Emergencies</div><span class="emg-count-badge">${DB.emergencies.length}</span></div><button class="btn btn-ghost btn-sm" onclick="refreshEmergencies().then(()=>navTo(currentPage))">↻ Refresh</button></div><div style="padding:10px">${renderEmergencyAlerts(true)}</div></div></div>`:'';
   return `${emgHtml}
-    <div class="realtime-bar"><div class="live-badge"><div class="live-dot"></div>Live</div><span>Clinical view · ${doctorTypeLabel}</span><span style="margin-left:auto;font-size:11px;color:var(--ink3)">Sun, 1 Mar 2026 · ${nowTime()}</span></div>
+    <div class="realtime-bar"><div class="live-badge"><div class="live-dot"></div>Live</div><span>Clinical view · ${doctorTypeLabel}</span><span style="margin-left:auto;font-size:11px;color:var(--ink3)">${new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'})} · ${nowTime()}</span></div>
     ${emergBanner}
     <div class="hero">
       <div class="hero-l"><div class="hero-greet">Good morning, Doctor</div><div class="hero-title">Dr. <em>${currentUser.name.replace('Dr. ','').split(' ')[0]}</em> 👨‍⚕️</div><div class="hero-desc">${myQueue.length} in queue · ${myPending.length} awaiting approval</div></div>
@@ -1227,14 +1245,18 @@ function renderDoctorDashboard() {
     <div style="display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start">
       <div>
         ${myPending.length>0?`<div class="card mb-14" style="border:1.5px solid var(--amber-bg)"><div class="card-h" style="background:var(--amber-bg)"><div class="card-title" style="color:#92400e">⏳ Pending Approval (${myPending.length})</div></div>
-        ${myPending.slice(0,3).map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border2)">
+        ${myPending.slice(0,3).map(a=>{const _today=new Date().toISOString().split('T')[0];const _past=a.date<_today;return`<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border2)${_past?';opacity:0.7':''}">
           <div class="pt-ava" style="background:${getAvaColor(a.patient)};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;flex-shrink:0">${initials(a.patient)}</div>
-          <div style="flex:1"><div style="font-size:12.5px;font-weight:600">${a.patient}</div><div style="font-size:11px;color:var(--ink3)">${a.date} ${a.time} · ${cap(a.type)}</div></div>
+          <div style="flex:1"><div style="font-size:12.5px;font-weight:600">${a.patient}</div>
+            <div style="font-size:11px;color:${_past?'var(--red)':'var(--ink3)'};font-weight:${_past?'600':'400'}">
+              ${a.date}${_past?` <span style="font-size:9.5px;background:var(--red-bg);color:var(--red);padding:1px 4px;border-radius:3px">past</span>`:''} ${a.time} · ${cap(a.type)}
+            </div>
+          </div>
           <div style="display:flex;gap:4px">
             <button class="btn btn-success btn-sm" onclick="approveAppt('${a.id}')">✓ Approve</button>
             <button class="btn btn-danger btn-sm" onclick="rejectAppt('${a.id}')">Reject</button>
           </div>
-        </div>`).join('')}</div>`:''}
+        </div>`;}).join('')}</div>`:''}
         ${nowServing?`<div class="card mb-14" style="border:2px solid var(--purple)">
           <div style="padding:12px 16px;background:var(--purple-bg);border-radius:12px 12px 0 0;display:flex;align-items:center;gap:8px">
             <div style="width:7px;height:7px;background:var(--purple);border-radius:50%;animation:blink 1s infinite"></div>
@@ -1383,7 +1405,7 @@ function renderAppointments() {
     <div class="card-actions">${canCreate?`<button class="btn btn-primary" onclick="openNewApptModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Booking</button>`:''}</div></div>
     <div class="filter-bar">
       <input class="search-field" placeholder="Search patient, ID…" id="apptSearch" oninput="filterAppts()">
-      <select class="filter-select" id="apptStatusFilter" onchange="filterAppts()"><option value="all">All Status</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="completed">Completed</option><option value="rejected">Rejected</option></select>
+      <select class="filter-select" id="apptStatusFilter" onchange="filterAppts()"><option value="all">All Status</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="completed">Completed</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select>
       <select class="filter-select" id="apptTypeFilter" onchange="filterAppts()"><option value="all">All Types</option><option value="normal">Normal</option><option value="emergency">Emergency</option></select>
     </div>
     <div class="tbl-wrap" id="apptTableWrap"></div>
@@ -1438,10 +1460,14 @@ function renderApptTable() {
         if (a.type==='emergency' && ['admin','receptionist','doctor','nurse'].includes(currentUser.roleKey)) {
           actions += ` <button class="btn btn-ambulance btn-sm" onclick="callAmbulance('${a.patient}')">🚑</button>`;
         }
-        return `<tr>
+        const today = new Date().toISOString().split('T')[0];
+        const isPast = a.date < today && a.status !== 'completed' && a.status !== 'expired';
+        return `<tr${a.status==='expired'?' style="opacity:0.65;background:var(--surface2)"':''}>
           <td><span class="appt-id">#${a.id}</span></td>
           <td><div class="pt-cell"><div class="pt-ava" style="background:${getAvaColor(a.patient)}">${initials(a.patient)}</div><div><div class="pt-name">${a.patient}</div><div class="pt-id">${a.studentId}</div></div></div></td>
-          <td>${a.date}</td><td>${a.time}</td>
+          <td style="${isPast?'color:var(--red);font-weight:600':''}">
+            ${a.date}${isPast?` <span style="font-size:9.5px;background:var(--red-bg);color:var(--red);padding:1px 5px;border-radius:4px;font-weight:500">past</span>`:''}
+          </td><td>${a.time}</td>
           <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
           <td>${a.doctor}</td>
           <td><span class="badge" style="font-size:9.5px;background:${a.source==='walkin'?'var(--amber-bg)':'var(--blue-bg)'};color:${a.source==='walkin'?'#92400e':'#0369a1'}">${a.source==='walkin'?'Walk-in':'Online'}</span></td>
@@ -2107,6 +2133,38 @@ function getTomorrowDate() {
   return d.toISOString().split('T')[0];
 }
 
+// ══════════════════════════════════════════════
+//  AUTO-EXPIRE PAST APPOINTMENTS
+//  Any pending or approved appointment whose date is strictly
+//  before today is automatically marked 'expired' in Supabase
+//  and in the local DB so all views stay consistent.
+// ══════════════════════════════════════════════
+async function autoExpireAppointments() {
+  const today = new Date().toISOString().split('T')[0];
+  const toExpire = DB.appointments.filter(a =>
+    a.date < today && (a.status === 'pending' || a.status === 'approved')
+  );
+  if (toExpire.length === 0) return;
+
+  // Batch-update Supabase (one call per affected id)
+  await Promise.allSettled(toExpire.map(a =>
+    sb.from('appointments')
+      .update({ status: 'expired', notes: (a.notes ? a.notes + ' | ' : '') + 'Auto-expired: appointment date passed without attendance.' })
+      .eq('appointment_ref', a.id)
+  ));
+
+  // Mirror locally so UI updates immediately without another fetch
+  toExpire.forEach(a => {
+    a.status = 'expired';
+    a.notes = (a.notes ? a.notes + ' | ' : '') + 'Auto-expired: appointment date passed without attendance.';
+  });
+
+  if (toExpire.length > 0) {
+    addAudit('Auto-Expire', `${toExpire.length} past appointment(s) expired automatically`);
+    console.info(`[CampusCare] Auto-expired ${toExpire.length} appointment(s).`);
+  }
+}
+
 function getMaxBookingDate() {
   const d = new Date();
   d.setDate(d.getDate() + 30);
@@ -2289,24 +2347,39 @@ async function submitStudentBooking() {
 // ══════════════════════════════════════════════
 function renderMyAppointments() {
   const myAppts = DB.appointments.filter(a=>a.patientId===currentUser.userId||a.patient===currentUser.name);
+  const today = new Date().toISOString().split('T')[0];
+  const expiredCount = myAppts.filter(a=>a.status==='expired').length;
   return `<div class="card">
     <div class="card-h"><div><div class="card-title">My Appointments</div><div class="card-sub">${myAppts.length} on record · Only pending appointments can be edited or cancelled</div></div>
     <button class="btn btn-primary" onclick="navTo('booking')">+ Book New</button></div>
+    ${expiredCount>0?`<div style="background:var(--amber-bg);border-left:4px solid var(--amber);padding:10px 16px;font-size:12.5px;color:#92400e;display:flex;align-items:center;gap:8px">
+      ⏰ <span><strong>${expiredCount} appointment${expiredCount>1?'s were':' was'} automatically removed</strong> — the booking date passed without attendance. Please rebook if you still need to visit the clinic.</span>
+    </div>`:''}
     <div class="tbl-wrap"><table>
       <thead><tr><th>ID</th><th>Date</th><th>Time</th><th>Doctor</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
-      <tbody>${myAppts.map(a=>`<tr>
-        <td><span class="appt-id">#${a.id}</span></td>
-        <td>${a.date}</td><td>${a.time}</td>
-        <td>${a.doctor}</td>
-        <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
-        <td><span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span></td>
-        <td>
-          <button class="btn btn-ghost btn-sm" onclick="viewAppt('${a.id}')">View</button>
-          ${a.status==='pending'?`<button class="btn btn-primary btn-sm" onclick="studentEditAppt('${a.id}')">Edit</button>`:''}
-          ${a.status==='pending'?`<button class="btn btn-danger btn-sm" onclick="studentCancelAppt('${a.id}')">Cancel</button>`:''}
-          ${a.status!=='pending'&&a.status!=='completed'?`<span style="font-size:10.5px;color:var(--ink3);padding:0 4px">Locked</span>`:''}
-        </td>
-      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--ink3)">No appointments</td></tr>'}</tbody>
+      <tbody>${myAppts.map(a=>{
+        const isPast = a.date < today;
+        return `<tr style="${a.status==='expired'?'opacity:0.7;background:var(--surface2)':''}">
+          <td><span class="appt-id">#${a.id}</span></td>
+          <td style="${isPast&&a.status!=='completed'?'color:var(--red);font-weight:600':''}">
+            ${a.date}${isPast&&a.status!=='completed'?` <span style="font-size:10px;background:var(--red-bg);color:var(--red);padding:1px 5px;border-radius:4px;font-weight:500">past</span>`:''}
+          </td>
+          <td>${a.time}</td>
+          <td>${a.doctor}</td>
+          <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
+          <td>
+            <span class="badge ${statusBadge(a.status)}"><span class="bdot"></span>${cap(a.status)}</span>
+            ${a.status==='expired'?`<div style="font-size:10px;color:var(--ink3);margin-top:2px">Auto-removed</div>`:''}
+          </td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="viewAppt('${a.id}')">View</button>
+            ${a.status==='pending'&&!isPast?`<button class="btn btn-primary btn-sm" onclick="studentEditAppt('${a.id}')">Edit</button>`:''}
+            ${a.status==='pending'&&!isPast?`<button class="btn btn-danger btn-sm" onclick="studentCancelAppt('${a.id}')">Cancel</button>`:''}
+            ${a.status==='expired'?`<button class="btn btn-primary btn-sm" onclick="navTo('booking')">↩ Rebook</button>`:''}
+            ${a.status!=='pending'&&a.status!=='completed'&&a.status!=='expired'?`<span style="font-size:10.5px;color:var(--ink3);padding:0 4px">Locked</span>`:''}
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--ink3)">No appointments</td></tr>'}</tbody>
     </table></div>
   </div>`;
 }
@@ -2469,8 +2542,11 @@ function confirmLogout() {
 function renderReports() {
   const byStatus={}, byDoctor={};
   DB.appointments.forEach(a=>{byStatus[a.status]=(byStatus[a.status]||0)+1; byDoctor[a.doctor]=(byDoctor[a.doctor]||0)+1;});
+  const expiredAppts = DB.appointments.filter(a=>a.status==='expired');
+  const expiredCount = expiredAppts.length;
   const bars=[{d:'Mon',v:19},{d:'Tue',v:22},{d:'Wed',v:18},{d:'Thu',v:25},{d:'Fri',v:22},{d:'Sat',v:12},{d:'Sun',v:21}];
   const maxV=Math.max(...bars.map(b=>b.v));
+  const total = DB.appointments.length || 1;
   return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div class="section-title" style="margin:0">Reports & Analytics</div>
     <div style="display:flex;gap:7px">
@@ -2483,7 +2559,41 @@ function renderReports() {
     <div class="stat-card"><div class="stat-icon" style="background:var(--green-bg)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="stat-val" style="color:var(--green)">${byStatus['completed']||0}</div><div class="stat-lbl">Completed</div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--red-bg)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><div class="stat-val" style="color:var(--red)">${DB.appointments.filter(a=>a.type==='emergency').length}</div><div class="stat-lbl">Emergency</div></div>
     <div class="stat-card"><div class="stat-icon" style="background:var(--amber-bg)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-val" style="color:var(--amber)">${byStatus['rejected']||0}</div><div class="stat-lbl">Rejected</div></div>
+    <div class="stat-card" style="border:1.5px solid var(--amber);position:relative;overflow:hidden">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:var(--amber);opacity:.7"></div>
+      <div class="stat-icon" style="background:var(--amber-bg)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="15" y1="15" x2="12" y2="12"/><path d="M4.93 4.93l14.14 14.14" stroke-dasharray="2 2"/></svg>
+      </div>
+      <div class="stat-val" style="color:var(--amber)">${expiredCount}</div>
+      <div class="stat-lbl">Auto-Expired</div>
+    </div>
   </div>
+  ${expiredCount>0?`
+  <div class="card mb-14" style="border:1.5px solid var(--amber)">
+    <div class="card-h" style="background:var(--amber-bg);border-radius:10px 10px 0 0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:15px">⏰</span>
+        <div>
+          <div class="card-title" style="color:#92400e">Auto-Expired Appointments</div>
+          <div class="card-sub" style="color:#b45309">${expiredCount} booking${expiredCount>1?'s':''} automatically removed — date passed without student attendance</div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>ID</th><th>Patient</th><th>Student ID</th><th>Booked Date</th><th>Time</th><th>Doctor</th><th>Type</th><th>Expired Reason</th></tr></thead>
+      <tbody>${expiredAppts.map(a=>`<tr style="opacity:0.8">
+        <td><span class="appt-id">#${a.id}</span></td>
+        <td><div class="pt-cell"><div class="pt-ava" style="background:${getAvaColor(a.patient)}">${initials(a.patient)}</div><div class="pt-name">${a.patient}</div></div></td>
+        <td style="font-size:11.5px;color:var(--ink3)">${a.studentId||'—'}</td>
+        <td style="color:var(--red);font-weight:600">${a.date} <span style="font-size:10px;background:var(--red-bg);color:var(--red);padding:1px 5px;border-radius:4px">past</span></td>
+        <td>${a.time}</td>
+        <td>${a.doctor}</td>
+        <td><span class="badge ${a.type==='emergency'?'b-emergency':'b-normal'}"><span class="bdot"></span>${cap(a.type)}</span></td>
+        <td style="font-size:11.5px;color:var(--ink3);max-width:180px">Date passed — auto-removed by system</td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}
   <div class="card mb-14"><div class="card-h"><div class="card-title">Weekly Trend</div></div>
     <div style="padding:18px 18px 12px"><div style="display:flex;align-items:flex-end;gap:8px;height:90px;border-bottom:1px solid var(--border2);padding-bottom:4px">
       ${bars.map(b=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end">
@@ -2494,17 +2604,26 @@ function renderReports() {
   </div>
   <div class="grid-2">
     <div class="card"><div class="card-h"><div class="card-title">By Status</div></div>
-      ${Object.entries(byStatus).map(([k,v])=>`<div class="report-row"><span class="badge ${statusBadge(k)}"><span class="bdot"></span>${cap(k)}</span><div style="display:flex;align-items:center;gap:10px"><div style="width:90px;height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.round(v/DB.appointments.length*100)}%;background:var(--blue);border-radius:3px"></div></div><span class="r-val">${v}</span></div></div>`).join('')}
+      ${Object.entries(byStatus).map(([k,v])=>`<div class="report-row">
+        <span class="badge ${statusBadge(k)}"><span class="bdot"></span>${cap(k)}${k==='expired'?' ⏰':''}</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:90px;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${Math.round(v/total*100)}%;background:${k==='expired'?'var(--amber)':'var(--blue)'};border-radius:3px"></div>
+          </div>
+          <span class="r-val">${v}</span>
+          ${k==='expired'?`<span style="font-size:10px;color:var(--amber);font-weight:600">auto-removed</span>`:''}
+        </div>
+      </div>`).join('')}
     </div>
     <div class="card"><div class="card-h"><div class="card-title">By Doctor</div></div>
-      ${Object.entries(byDoctor).map(([k,v])=>`<div class="report-row"><span style="font-size:12px;font-weight:500">${k}</span><div style="display:flex;align-items:center;gap:10px"><div style="width:90px;height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.round(v/DB.appointments.length*100)}%;background:var(--teal);border-radius:3px"></div></div><span class="r-val">${v}</span></div></div>`).join('')}
+      ${Object.entries(byDoctor).map(([k,v])=>`<div class="report-row"><span style="font-size:12px;font-weight:500">${k}</span><div style="display:flex;align-items:center;gap:10px"><div style="width:90px;height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.round(v/total*100)}%;background:var(--teal);border-radius:3px"></div></div><span class="r-val">${v}</span></div></div>`).join('')}
     </div>
   </div>`;
 }
 
 function exportCSV() {
-  const headers=['ID','Patient','Student ID','Date','Time','Type','Doctor','Status','Source','Notes'];
-  const rows=DB.appointments.map(a=>[a.id,a.patient,a.studentId,a.date,a.time,a.type,a.doctor,a.status,a.source||'',`"${a.notes||''}"`]);
+  const headers=['ID','Patient','Student ID','Date','Time','Type','Doctor','Status','Auto-Expired','Source','Notes'];
+  const rows=DB.appointments.map(a=>[a.id,a.patient,a.studentId,a.date,a.time,a.type,a.doctor,a.status,a.status==='expired'?'Yes':'No',a.source||'',`"${a.notes||''}"`]);
   const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
