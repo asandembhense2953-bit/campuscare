@@ -58,8 +58,8 @@
           <div><label class="form-label">First Name</label><input type="text" class="form-input" id="regFirst" placeholder="Ahmad"></div>
           <div><label class="form-label">Last Name</label><input type="text" class="form-input" id="regLast" placeholder="Zulkifli"></div>
         </div>
-        <label class="form-label">Student ID</label>
-        <input type="text" class="form-input" id="regStudentId" placeholder="STU2024-XXX">
+        <label class="form-label">Student ID <span style="font-size:11px;color:#64748b;font-weight:400">(8-digit number)</span></label>
+        <input type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" class="form-input" id="regStudentId" placeholder="e.g. 22440270" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,8)">
         <label class="form-label">University Email</label>
         <input type="email" class="form-input" id="regEmail" placeholder="student@university.edu">
         <div class="field-grid" style="gap:10px">
