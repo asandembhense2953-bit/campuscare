@@ -114,7 +114,8 @@ async function testConnection() {
     const r = await fetch(SUPABASE_URL+'/rest/v1/', {
       headers:{'apikey':SUPABASE_ANON}
     });
-    if (r.ok || r.status === 200 || r.status === 404) {
+    // 200/404 = open endpoint, 401 = reached Supabase but needs auth (still connected)
+    if (r.ok || r.status === 200 || r.status === 404 || r.status === 401) {
       banner.className='conn-banner conn-ok';
       banner.textContent='✓ Connected to CampusCare database';
       banner.style.display='block';
