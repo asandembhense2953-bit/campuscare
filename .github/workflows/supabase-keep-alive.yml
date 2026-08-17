@@ -2,10 +2,10 @@ name: Supabase Keep Alive
 
 on:
   schedule:
-    # Runs every 5 days at 07:00 UTC
+    # Runs approximately every 5 days at 07:00 UTC
     - cron: "0 7 */5 * *"
 
-  # Allows you to test it manually from GitHub
+  # Allows manual testing
   workflow_dispatch:
 
 jobs:
@@ -13,24 +13,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Keep Supabase project active
+      - name: Update Supabase keep-alive record
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
         run: |
-          echo "Checking Supabase activity..."
+          echo "Updating CampusCare keep-alive record..."
 
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/sensor_readings?select=sensor_id&limit=1" \
+          HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" \
+            -X PATCH \
+            "${SUPABASE_URL}/rest/v1/sensor_readings?sensor_id=eq.000250da-af1c-4805-996c-3234d7a5a721" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            --data '{"occupancy_level":0}')
 
-          echo "Supabase response: $RESPONSE"
+          echo "HTTP Status: $HTTP_STATUS"
 
-          if [ "$RESPONSE" = "200" ]; then
-            echo "Supabase keep-alive successful."
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Supabase keep-alive update successful."
+            cat response.json
           else
-            echo "Supabase request failed."
+            echo "Supabase update failed."
+            cat response.json
             exit 1
           fi
