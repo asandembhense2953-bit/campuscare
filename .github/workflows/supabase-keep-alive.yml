@@ -1,0 +1,36 @@
+name: Supabase Keep Alive
+
+on:
+  schedule:
+    # Runs every 5 days at 07:00 UTC
+    - cron: "0 7 */5 * *"
+
+  # Allows you to test it manually from GitHub
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Keep Supabase project active
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+        run: |
+          echo "Checking Supabase activity..."
+
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/sensor_readings?select=sensor_id&limit=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+
+          echo "Supabase response: $RESPONSE"
+
+          if [ "$RESPONSE" = "200" ]; then
+            echo "Supabase keep-alive successful."
+          else
+            echo "Supabase request failed."
+            exit 1
+          fi
