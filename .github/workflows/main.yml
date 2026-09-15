@@ -1,0 +1,29 @@
+name: Supabase Keep Alive
+
+on:
+  schedule:
+    # Runs every 5 days
+    - cron: "0 0 */5 * *"
+
+  # Allows you to run it manually from GitHub
+  workflow_dispatch:
+
+jobs:
+  keep-supabase-alive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update CampusCare student record
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          curl --fail-with-body -X PATCH \
+            "${SUPABASE_URL}/rest/v1/students?id=eq.0f206a58-1d3c-4683-add1-1d4c7c2eddf9" \
+            -H "apikey: ${SUPABASE_SECRET_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{"first_name":"Asande"}'
+
+          echo "Supabase keep-alive request completed successfully."
