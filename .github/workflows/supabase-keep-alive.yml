@@ -1,0 +1,30 @@
+name: Supabase Keep Alive
+
+on:
+  schedule:
+    # Every 3 days at 07:00 UTC (Supabase pauses free projects after ~7 idle days)
+    - cron: "0 7 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping CampusCare database
+        env:
+          SUPABASE_URL: https://lallzvyunllqqvtqwibz.supabase.co
+          # Public anon key (already in app.js). Read-only, changes no data.
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhbGx6dnl1bmxscXF2dHF3aWJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2NDUyNjgsImV4cCI6MjA4ODIyMTI2OH0.p9Xnt3Dva35QnIOkrZ7w0syFbVm-dYcB-3FrF4RwBRA
+        run: |
+          STATUS=$(curl -s -o response.json -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/students?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "HTTP status: $STATUS"
+          cat response.json; echo
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
+            echo "Keep-alive OK."
+          else
+            echo "Keep-alive FAILED."
+            exit 1
+          fi
